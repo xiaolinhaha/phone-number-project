@@ -292,9 +292,16 @@ def load_phone_numbers_from_excel(excel_path):
                     if isinstance(phone, (int, float)):
                         # 转换为字符串，如果原始数据有前导0，需要补回来
                         phone_str = str(int(phone))  # 先转为int去除小数点，再转字符串
-                        # 检查是否需要补前导0（通常手机号是11位）
-                        if len(phone_str) == 10 and not phone_str.startswith('1'):
+                        # 检查是否需要补前导0
+                        # 如果是10位数字且不以1开头，很可能原来有前导0
+                        if len(phone_str) == 10:
                             phone_str = '0' + phone_str
+                        # 如果是9位数字，可能原来有两个前导0
+                        elif len(phone_str) == 9:
+                            phone_str = '00' + phone_str
+                        # 如果是8位数字，可能原来有三个前导0  
+                        elif len(phone_str) == 8:
+                            phone_str = '000' + phone_str
                     else:
                         phone_str = str(phone).strip()
                     
@@ -311,9 +318,118 @@ def load_phone_numbers_from_excel(excel_path):
         print(f"❌ 读取Excel文件失败: {e}")
         return []
 
+def save_single_result_to_excel(result, output_path):
+    """
+    将单条查询结果追加保存到Excel文件
+    
+    Args:
+        result: 单条查询结果
+        output_path: 输出Excel文件路径
+    """
+    
+    print(f"\n💾 追加单条结果到Excel文件: {output_path}")
+    
+    try:
+        from openpyxl import load_workbook, Workbook
+        
+        # 准备单条数据，确保手机号为字符串类型
+        if result['success'] and result['data']:
+            data_info = result['data']
+            row_data = [
+                str(result['phone_number']),  # 手机号
+                '成功',  # 查询状态
+                data_info.get('telnum', ''),  # telnum
+                data_info.get('name', ''),  # name
+                data_info.get('flag', ''),  # flag
+                data_info.get('id', ''),  # id
+                data_info.get('teltype', ''),  # teltype
+                ''  # 错误信息
+            ]
+        else:
+            row_data = [
+                str(result['phone_number']),  # 手机号
+                '失败',  # 查询状态
+                '',  # telnum
+                '',  # name
+                '',  # flag
+                '',  # id
+                '',  # teltype
+                result['message']  # 错误信息
+            ]
+        
+        # 检查文件是否存在
+        if os.path.exists(output_path):
+            # 文件存在，加载现有工作簿
+            wb = load_workbook(output_path)
+            ws = wb.active
+        else:
+            # 文件不存在，创建新工作簿
+            wb = Workbook()
+            ws = wb.active
+            # 添加表头
+            headers = ['手机号', '查询状态', 'telnum', 'name', 'flag', 'id', 'teltype', '错误信息']
+            ws.append(headers)
+        
+        # 添加数据行
+        ws.append(row_data)
+        
+        # 设置手机号列（第1列）为文本格式
+        for row in range(1, ws.max_row + 1):
+            cell = ws.cell(row=row, column=1)
+            cell.number_format = '@'  # 文本格式
+        
+        # 保存文件
+        wb.save(output_path)
+        
+        print(f"✅ 成功追加1条结果到 {output_path}")
+        print(f"📱 手机号: {result['phone_number']}, 状态: {'成功' if result['success'] else '失败'}")
+        
+    except Exception as e:
+        print(f"❌ 追加保存Excel文件失败: {e}")
+
+def initialize_excel_file(output_path):
+    """
+    初始化Excel文件，创建表头
+    
+    Args:
+        output_path: 输出Excel文件路径
+    """
+    
+    print(f"\n📋 初始化Excel文件: {output_path}")
+    
+    try:
+        from openpyxl import Workbook
+        
+        # 如果文件已存在，不需要重新初始化
+        if os.path.exists(output_path):
+            print(f"📄 Excel文件已存在，跳过初始化")
+            return True
+        
+        # 创建新工作簿
+        wb = Workbook()
+        ws = wb.active
+        
+        # 添加表头
+        headers = ['手机号', '查询状态', 'telnum', 'name', 'flag', 'id', 'teltype', '错误信息']
+        ws.append(headers)
+        
+        # 设置手机号列（第1列）的标题行为文本格式
+        cell = ws.cell(row=1, column=1)
+        cell.number_format = '@'
+        
+        # 保存文件
+        wb.save(output_path)
+        
+        print(f"✅ 成功初始化Excel文件")
+        return True
+        
+    except Exception as e:
+        print(f"❌ 初始化Excel文件失败: {e}")
+        return False
+
 def save_results_to_excel(results, output_path):
     """
-    将查询结果保存到Excel文件
+    将查询结果保存到Excel文件（批量模式，保持向后兼容）
     
     Args:
         results: 查询结果列表
@@ -367,12 +483,13 @@ def save_results_to_excel(results, output_path):
     except Exception as e:
         print(f"❌ 保存Excel文件失败: {e}")
 
-def batch_query_phones(phone_numbers, max_retries=3):
+def batch_query_phones(phone_numbers, output_path, max_retries=3):
     """
-    批量查询手机号码信息
+    批量查询手机号码信息，每成功一条就立即保存到Excel
     
     Args:
         phone_numbers: 手机号码列表
+        output_path: 输出Excel文件路径
         max_retries: 最大重试次数
     
     Returns:
@@ -381,6 +498,11 @@ def batch_query_phones(phone_numbers, max_retries=3):
     
     print(f"\n🚀 开始批量查询 {len(phone_numbers)} 个手机号码")
     print("=" * 70)
+    
+    # 初始化Excel文件
+    if not initialize_excel_file(output_path):
+        print("❌ 初始化Excel文件失败，程序退出")
+        return []
     
     results = []
     
@@ -420,6 +542,10 @@ def batch_query_phones(phone_numbers, max_retries=3):
                 if result['success']:
                     print(f"✅ 查询成功!")
                     results.append(result)
+                    
+                    # 立即保存成功的结果到Excel
+                    save_single_result_to_excel(result, output_path)
+                    
                     success = True
                 else:
                     print(f"❌ 查询失败: {result['message']}")
@@ -428,8 +554,9 @@ def batch_query_phones(phone_numbers, max_retries=3):
                         print(f"🔄 验证码错误，将重新获取验证码并重试")
                         retry_count += 1
                     else:
-                        # 其他错误，不重试
+                        # 其他错误，不重试，但也要保存失败结果
                         results.append(result)
+                        save_single_result_to_excel(result, output_path)
                         success = True
                 
                 # 只有成功时才添加延迟，失败重试时不延迟
@@ -463,18 +590,20 @@ def batch_query_phones(phone_numbers, max_retries=3):
                 'message': f'重试{max_retries}次后仍然失败'
             }
             results.append(error_result)
+            # 保存失败结果到Excel
+            save_single_result_to_excel(error_result, output_path)
     
     return results
 
 def main():
     """主函数 - 批量处理模式"""
     print("🚀 批量验证码自动识别和查询工具")
-    print("功能：1. 从Excel读取手机号  2. 批量OCR识别  3. 批量查询并保存结果")
+    print("功能：1. 从Excel读取手机号  2. 批量OCR识别  3. 批量查询并实时保存结果")
     print("=" * 70)
     
-    # Excel文件路径
-    input_excel_path = "/Users/zjl/develop/rongshu/phoneNumber/副本123out.xlsx"
-    output_excel_path = "/Users/zjl/develop/rongshu/phoneNumber/查询结果.xlsx"
+    # Excel文件路径（使用相对路径）
+    input_excel_path = "副本123out.xlsx"
+    output_excel_path = "查询结果.xlsx"
     
     # 步骤1: 从Excel读取手机号码
     print(f"\n📋 步骤1: 从Excel文件读取手机号码")
@@ -487,21 +616,23 @@ def main():
     print(f"\n✅ 成功读取 {len(phone_numbers)} 个手机号码")
     print(f"📱 前5个号码预览: {phone_numbers[:5]}")
     
-    # 步骤2: 批量查询
-    print(f"\n📋 步骤2: 开始批量查询")
-    results = batch_query_phones(phone_numbers)
+    # 步骤2: 批量查询（每成功一条就保存）
+    print(f"\n📋 步骤2: 开始批量查询（实时保存模式）")
+    results = batch_query_phones(phone_numbers, output_excel_path)
     
     if not results:
         print(f"\n❌ 批量查询失败，程序退出")
         return False
     
-    # 步骤3: 保存结果到Excel
-    print(f"\n📋 步骤3: 保存查询结果")
-    save_results_to_excel(results, output_excel_path)
-    
+    # 显示最终统计信息
     print(f"\n🎉 批量查询完成!")
     print(f"📊 输入文件: {input_excel_path}")
     print(f"📊 输出文件: {output_excel_path}")
+    
+    # 显示统计信息
+    success_count = sum(1 for r in results if r['success'])
+    fail_count = len(results) - success_count
+    print(f"📊 最终统计: 成功 {success_count} 条，失败 {fail_count} 条")
     
     return True
 
