@@ -7,6 +7,7 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+files/
 
 # ddddocr specific ignores
 ddddocr-master/build/
@@ -26,3 +27,5 @@ temp_captcha/
 
 # Excel files (if they are output files)
 *.xlsx
+api_calls.log
+scheduler.log
