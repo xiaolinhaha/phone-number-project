@@ -96,7 +96,7 @@ class CommonAPIClient:
             data_json = json.dumps({
                 "number": number,
                 "tag": tag
-            })
+            }, ensure_ascii=False)
             
             payload = {
                 "inputs": {
