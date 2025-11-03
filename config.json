@@ -1,0 +1,18 @@
+{
+    "api": {
+        "api_key": "app-4djToLaTnYL1NYdlHv75knvx",
+        "base_url": "https://malla.leagpoint.com/rssz/v1/workflows/run",
+        "all_phone": "all",
+        "response_mode": "blocking",
+        "user": "abc-123"
+    },
+    "schedule": {
+        "time": "10:00",
+        "description": "每天执行API调用的时间"
+    },
+    "logging": {
+        "level": "INFO",
+        "api_log_file": "api_calls.log",
+        "scheduler_log_file": "scheduler.log"
+    }
+}

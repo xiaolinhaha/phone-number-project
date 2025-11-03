@@ -1,0 +1,26 @@
+# API定时任务 - 每天10:00执行
+# 使用方法:
+# 1. 编辑crontab: crontab -e
+# 2. 添加以下行到crontab文件中
+# 3. 保存并退出
+
+# 每天10:00执行API调用 (使用Python脚本)
+0 10 * * * cd /Users/zjl/develop/xiaolinhaha/new/phone-number-project && /usr/bin/python3 api_caller.py >> /Users/zjl/develop/xiaolinhaha/new/phone-number-project/cron_api_calls.log 2>&1
+
+# 或者使用绝对路径 (推荐)
+# 0 10 * * * /usr/bin/python3 /Users/zjl/develop/xiaolinhaha/new/phone-number-project/api_caller.py >> /Users/zjl/develop/xiaolinhaha/new/phone-number-project/cron_api_calls.log 2>&1
+
+# Cron时间格式说明:
+# 分钟 小时 日 月 星期 命令
+# 0    10   *  *  *    命令
+# 
+# 示例:
+# 0 10 * * *     - 每天10:00
+# 0 10 * * 1     - 每周一10:00  
+# 0 10 1 * *     - 每月1号10:00
+# */30 * * * *   - 每30分钟
+# 0 */2 * * *    - 每2小时
+
+# 查看当前crontab任务: crontab -l
+# 删除所有crontab任务: crontab -r
+# 编辑crontab任务: crontab -e

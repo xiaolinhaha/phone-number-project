@@ -9,10 +9,16 @@ import os
 import sys
 import pandas as pd
 from datetime import datetime
+import glob
 
-# 添加ddddocr路径
-sys.path.append('/Users/zjl/develop/rongshu/phoneNumber/ddddocr-master')
+# 添加ddddocr路径 - 使用相对路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+ddddocr_path = os.path.join(current_dir, '..', '..', 'rongshu', 'phoneNumber', 'ddddocr-master')
+sys.path.append(ddddocr_path)
 import ddddocr
+
+# 导入公共API调用模块
+from common_api import create_api_client
 
 def get_captcha_and_save():
     """
@@ -24,8 +30,8 @@ def get_captcha_and_save():
     print("=" * 50)
     
     try:
-        # 确保temp_captcha目录存在
-        captcha_dir = "/Users/zjl/develop/rongshu/phoneNumber/temp_captcha"
+        # 确保temp_captcha目录存在 - 使用相对路径
+        captcha_dir = os.path.join(current_dir, '..', '..', 'rongshu', 'phoneNumber', 'temp_captcha')
         if not os.path.exists(captcha_dir):
             os.makedirs(captcha_dir)
             print(f"📁 创建目录: {captcha_dir}")
@@ -261,9 +267,81 @@ def recognize_captcha_with_ocr(image_path):
         print(f"❌ OCR识别异常: {e}")
         return None
 
+def get_latest_number_list_file():
+    """
+    获取最新的numberList JSON文件路径
+    
+    Returns:
+        str: 最新的JSON文件路径，如果没有找到则返回None
+    """
+    
+    # 使用相对路径
+    files_dir = "files"
+    pattern = os.path.join(files_dir, "numberList_*.json")
+    
+    try:
+        # 查找所有匹配的文件
+        json_files = glob.glob(pattern)
+        
+        if not json_files:
+            print(f"❌ 在 {files_dir} 目录中未找到 numberList_*.json 文件")
+            return None
+        
+        # 按修改时间排序，获取最新的文件
+        latest_file = max(json_files, key=os.path.getmtime)
+        print(f"📁 找到最新的numberList文件: {latest_file}")
+        
+        return latest_file
+        
+    except Exception as e:
+        print(f"❌ 查找numberList文件时出错: {e}")
+        return None
+
+def load_phone_numbers_from_json(json_path):
+    """
+    从JSON文件中读取手机号码列表
+    
+    Args:
+        json_path: JSON文件路径
+    
+    Returns:
+        list: 手机号码列表
+    """
+    
+    print(f"📊 读取JSON文件: {json_path}")
+    
+    try:
+        # 读取JSON文件
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # 从新的JSON格式中提取numberList
+        if isinstance(data, dict) and 'numberList' in data:
+            phone_numbers = data['numberList']
+            print(f"📏 从numberList中读取到 {len(phone_numbers)} 个号码")
+        else:
+            # 兼容旧格式（直接是数组）
+            phone_numbers = data if isinstance(data, list) else []
+            print(f"📏 使用兼容模式，读取到 {len(phone_numbers)} 个号码")
+        
+        # 确保所有号码都是字符串格式，保持原始格式不变
+        formatted_phones = []
+        for phone in phone_numbers:
+            if phone:  # 去除空值
+                phone_str = str(phone).strip()
+                formatted_phones.append(phone_str)
+        
+        print(f"📱 成功读取 {len(formatted_phones)} 个手机号码")
+        print(f"📋 前3个号码示例: {formatted_phones[:3]}")
+        return formatted_phones
+            
+    except Exception as e:
+        print(f"❌ 读取JSON文件失败: {e}")
+        return []
+
 def load_phone_numbers_from_excel(excel_path):
     """
-    从Excel文件中读取手机号码列表
+    从Excel文件中读取手机号码列表（保留原函数以兼容）
     
     Args:
         excel_path: Excel文件路径
@@ -483,7 +561,7 @@ def save_results_to_excel(results, output_path):
     except Exception as e:
         print(f"❌ 保存Excel文件失败: {e}")
 
-def batch_query_phones(phone_numbers, output_path, max_retries=3):
+def batch_query_phones(phone_numbers, output_path, max_retries=5):
     """
     批量查询手机号码信息，每成功一条就立即保存到Excel
     
@@ -546,6 +624,32 @@ def batch_query_phones(phone_numbers, output_path, max_retries=3):
                     # 立即保存成功的结果到Excel
                     save_single_result_to_excel(result, output_path)
                     
+                    # 检查是否有flag值，如果有则调用公共API
+                    if result.get('data') and result['data'].get('flag'):
+                        flag_value = result['data']['flag']
+                        print(f"🔍 检测到flag值: {flag_value}")
+                        
+                        try:
+                            # 创建API客户端并调用
+                            api_client = create_api_client()
+                            tag = f"号码邦-{flag_value}"
+                            
+                            print(f"📞 调用公共API...")
+                            print(f"   📱 Number: {phone_number}")
+                            print(f"   🏷️  Tag: {tag}")
+                            
+                            api_result = api_client.call_api_with_number_tag(phone_number, tag)
+                            
+                            if api_result.get('success'):
+                                print(f"✅ 公共API调用成功!")
+                            else:
+                                print(f"❌ 公共API调用失败: {api_result.get('error', '未知错误')}")
+                                
+                        except Exception as api_e:
+                            print(f"❌ 调用公共API时发生异常: {api_e}")
+                    else:
+                        print(f"ℹ️  未检测到flag值，跳过公共API调用")
+                    
                     success = True
                 else:
                     print(f"❌ 查询失败: {result['message']}")
@@ -598,16 +702,21 @@ def batch_query_phones(phone_numbers, output_path, max_retries=3):
 def main():
     """主函数 - 批量处理模式"""
     print("🚀 批量验证码自动识别和查询工具")
-    print("功能：1. 从Excel读取手机号  2. 批量OCR识别  3. 批量查询并实时保存结果")
+    print("功能：1. 从JSON读取手机号  2. 批量OCR识别  3. 批量查询并实时保存结果")
     print("=" * 70)
     
-    # Excel文件路径（使用相对路径）
-    input_excel_path = "副本123out.xlsx"
-    output_excel_path = "查询结果.xlsx"
+    # 获取最新的numberList JSON文件
+    input_json_path = get_latest_number_list_file()
+    if not input_json_path:
+        print("❌ 未找到有效的numberList JSON文件，程序退出")
+        return False
     
-    # 步骤1: 从Excel读取手机号码
-    print(f"\n📋 步骤1: 从Excel文件读取手机号码")
-    phone_numbers = load_phone_numbers_from_excel(input_excel_path)
+    # 输出Excel路径（相对路径）
+    output_excel_path = "手机号查询结果.xlsx"
+    
+    # 步骤1: 从JSON读取手机号码
+    print(f"\n📋 步骤1: 从JSON文件读取手机号码")
+    phone_numbers = load_phone_numbers_from_json(input_json_path)
     
     if not phone_numbers:
         print(f"\n❌ 未能读取到手机号码，程序退出")
@@ -626,7 +735,7 @@ def main():
     
     # 显示最终统计信息
     print(f"\n🎉 批量查询完成!")
-    print(f"📊 输入文件: {input_excel_path}")
+    print(f"📊 输入文件: {input_json_path}")
     print(f"📊 输出文件: {output_excel_path}")
     
     # 显示统计信息
