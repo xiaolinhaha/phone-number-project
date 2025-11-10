@@ -44,25 +44,29 @@ class APIWorkflowCaller:
             "user": self.config['api']['user']
         }
     
-    def save_number_list_to_file(self, number_list, files_dir="/Users/zjl/develop/xiaolinhaha/new/phone-number-project/files"):
+    def save_number_list_to_file(self, number_list, files_dir="files"):
         """
-        保存numberList到JSON文件
+        保存numberList到JSON文件（默认保存到项目目录下的 files/）
         
         Args:
             number_list (list): 电话号码列表
-            files_dir (str): 保存文件的目录
+            files_dir (str): 保存文件的目录；相对路径将以当前脚本目录为基准
         """
         try:
+            # 统一为脚本目录相对路径，避免服务器上的绝对路径问题
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            target_dir = files_dir if os.path.isabs(files_dir) else os.path.join(script_dir, files_dir)
+
             # 确保files目录存在
-            os.makedirs(files_dir, exist_ok=True)
+            os.makedirs(target_dir, exist_ok=True)
             
             # 删除前一天的JSON文件
-            self.cleanup_old_files(files_dir)
+            self.cleanup_old_files(target_dir)
             
             # 生成今天的文件名
             today = datetime.now().strftime("%Y-%m-%d")
             filename = f"numberList_{today}.json"
-            filepath = os.path.join(files_dir, filename)
+            filepath = os.path.join(target_dir, filename)
             
             # 准备保存的数据
             data = {
