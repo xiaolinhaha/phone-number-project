@@ -38,7 +38,7 @@ class APIWorkflowCaller:
         
         self.payload = {
             "inputs": {
-                "allPhone": self.config['api']['all_phone']
+                "allPhone": 'all'
             },
             "response_mode": self.config['api']['response_mode'],
             "user": self.config['api']['user']
@@ -112,7 +112,7 @@ class APIWorkflowCaller:
     
     def extract_number_list_from_response(self, response_text):
         """
-        从流式响应中提取numberList
+        从流式响应文本中提取号码列表，优先解析 numberListBody.callingNumbers
         
         Args:
             response_text (str): 响应文本
@@ -128,12 +128,20 @@ class APIWorkflowCaller:
                     data_str = line.strip()[6:]  # 去掉 'data: ' 前缀
                     try:
                         data = json.loads(data_str)
-                        if (data.get('event') == 'workflow_finished' and 
-                            'data' in data and 
-                            'outputs' in data['data'] and 
-                            'numberList' in data['data']['outputs']):
-                            number_list = data['data']['outputs']['numberList']
-                            break
+                        if data.get('event') == 'workflow_finished':
+                            outputs = (data.get('data') or {}).get('outputs')
+                            if isinstance(outputs, dict):
+                                # 新结构：outputs.numberListBody.callingNumbers
+                                number_list_body = outputs.get('numberListBody')
+                                if isinstance(number_list_body, dict):
+                                    calling_numbers = number_list_body.get('callingNumbers')
+                                    if isinstance(calling_numbers, list):
+                                        number_list = calling_numbers
+                                        break
+                                # 兼容旧结构：outputs.numberList 为数组
+                                if isinstance(outputs.get('numberList'), list):
+                                    number_list = outputs.get('numberList')
+                                    break
                     except json.JSONDecodeError:
                         continue
         except Exception as e:
@@ -191,6 +199,46 @@ class APIWorkflowCaller:
             }
         }
     
+    def _extract_calling_numbers_from_outputs(self, outputs):
+        """
+        从 outputs 提取号码数组，支持两种结构：
+        1) outputs.numberListBody.callingNumbers（字典或JSON字符串）
+        2) 兼容旧结构 outputs.numberList（数组）
+        """
+        number_list = []
+        try:
+            if not isinstance(outputs, dict):
+                return []
+            body = outputs.get('numberListBody')
+            # 情况1：字典结构
+            if isinstance(body, dict):
+                cn = body.get('callingNumbers')
+                if isinstance(cn, list):
+                    number_list = cn
+            # 情况2：字符串结构（需要反序列化）
+            elif isinstance(body, str):
+                parsed = None
+                try:
+                    parsed = json.loads(body)
+                except json.JSONDecodeError:
+                    # 尝试兼容单引号
+                    try:
+                        parsed = json.loads(body.replace("'", '"'))
+                    except json.JSONDecodeError:
+                        parsed = None
+                if isinstance(parsed, dict):
+                    cn = parsed.get('callingNumbers')
+                    if isinstance(cn, list):
+                        number_list = cn
+            # 兼容旧结构
+            if not number_list:
+                legacy = outputs.get('numberList')
+                if isinstance(legacy, list):
+                    number_list = legacy
+        except Exception:
+            pass
+        return number_list
+    
     def call_api(self):
         """
         调用API接口
@@ -228,22 +276,18 @@ class APIWorkflowCaller:
                             logging.info(f"📥 接收数据: {decoded_line}")
                             response_text += decoded_line + "\n"
                             
-                            # 尝试从当前行提取numberList
+                            # 尝试从当前行提取号码列表（优先 numberListBody.callingNumbers）
                             if decoded_line.strip().startswith('data: '):
                                 data_str = decoded_line.strip()[6:]  # 去掉 'data: ' 前缀
                                 try:
                                     data = json.loads(data_str)
-                                    if (data.get('event') == 'workflow_finished' and 
-                                        'data' in data and 
-                                        'outputs' in data['data'] and 
-                                        'numberList' in data['data']['outputs']):
-                                        number_list = data['data']['outputs']['numberList']
-                                        logging.info(f"🎯 提取到numberList: {number_list}")
-                                        
-                                        # 保存numberList到JSON文件
+                                    if data.get('event') == 'workflow_finished':
+                                        outputs = (data.get('data') or {}).get('outputs')
+                                        number_list = self._extract_calling_numbers_from_outputs(outputs)
                                         if number_list:
+                                            logging.info(f"🎯 提取到号码列表，共 {len(number_list)} 个")
+                                            # 保存到JSON文件（键名保持为 'numberList' 供下游脚本使用）
                                             self.save_number_list_to_file(number_list)
-                                        
                                 except json.JSONDecodeError:
                                     continue
                     
@@ -258,15 +302,23 @@ class APIWorkflowCaller:
                     result = response.json()
                     logging.info(f"📥 响应数据: {json.dumps(result, indent=2)}")
                     
-                    # 从阻塞式响应中提取numberList
+                    # 从阻塞式响应中提取号码列表，优先读取 numberListBody.callingNumbers
                     number_list = []
-                    if 'data' in result and 'outputs' in result['data'] and 'numberList' in result['data']['outputs']:
-                        number_list = result['data']['outputs']['numberList']
-                        logging.info(f"🎯 提取到numberList: {number_list}")
-                        
-                        # 保存numberList到JSON文件
-                        if number_list:
-                            self.save_number_list_to_file(number_list)
+                    try:
+                        data_section = result.get('data') or {}
+                        outputs = data_section.get('outputs')
+                        number_list = self._extract_calling_numbers_from_outputs(outputs)
+                        if not number_list:
+                            status = result.get('status')
+                            if status == 'failed':
+                                logging.error(f"❌ 工作流返回失败: {json.dumps(result, ensure_ascii=False)}")
+                    except Exception as e:
+                        logging.error(f"❌ 解析响应提取号码失败: {str(e)}")
+
+                    if number_list:
+                        logging.info(f"🎯 提取到号码列表，共 {len(number_list)} 个")
+                        # 保存numberList到JSON文件（为下游脚本保持键名 'numberList'）
+                        self.save_number_list_to_file(number_list)
                     
                     return {
                         "success": True,
