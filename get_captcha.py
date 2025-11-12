@@ -13,7 +13,8 @@ import glob
 
 # 添加ddddocr路径 - 使用相对路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
-ddddocr_path = os.path.join(current_dir, '..', '..', 'rongshu', 'phoneNumber', 'ddddocr-master')
+# 将 ddddocr 路径改为当前项目内的 ddddocr-master 目录
+ddddocr_path = os.path.join(current_dir, 'ddddocr-master')
 sys.path.append(ddddocr_path)
 import ddddocr
 
@@ -30,8 +31,8 @@ def get_captcha_and_save():
     print("=" * 50)
     
     try:
-        # 确保temp_captcha目录存在 - 使用相对路径
-        captcha_dir = os.path.join(current_dir, '..', '..', 'rongshu', 'phoneNumber', 'temp_captcha')
+        # 确保temp_captcha目录存在 - 在当前文件夹下
+        captcha_dir = os.path.join(current_dir, 'temp_captcha')
         if not os.path.exists(captcha_dir):
             os.makedirs(captcha_dir)
             print(f"📁 创建目录: {captcha_dir}")
